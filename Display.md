@@ -2,14 +2,7 @@
 
 ## 📋 目录
 
-- [1. 显示硬件规格](#1-显示硬件规格)
-- [2. 显示控制器架构](#2-显示控制器架构)
-- [3. 系统显示栈](#3-系统显示栈)
-- [4. DRM/KMS子系统](#4-drmkms子系统)
-- [5. 显示时序与信号](#5-显示时序与信号)
-- [6. 设备节点与接口](#6-设备节点与接口)
-- [7. 电源管理](#7-电源管理)
-- [8. 硬件调试工具](#8-硬件调试工具)
+[TOC]
 
 ---
 
@@ -34,144 +27,59 @@
 
 ### 1.2 显示控制器硬件架构
 
-```plantuml
-@startuml DisplayControllerArchitecture
-
-package "Rockchip RK3308 SoC" {
-    component "ARM Cortex-A35 Quad Core" as CPU {
-        port cpu_if
-    }
+```mermaid
+graph TD
+    subgraph "Rockchip RK3308 SoC"
+        CPU["ARM Cortex-A35 Quad Core<br/>cpu_if"]
+        AXI["AXI System Bus<br/>cpu_port<br/>vop_port<br/>memory_port"]
+        DDR["DDR3 Memory Controller<br/>axi_port<br/>ddr_pins"]
+        VOP["VOP (Video Output Processor)<br/>Display Controller<br/>Layer Compositor<br/>Color Space Converter<br/>Scaler<br/>axi_if<br/>dpi_if"]
+        CRU["Clock & Reset Unit<br/>vop_clk<br/>dpi_clk"]
+        PMU["Power Management Unit<br/>power_ctrl"]
+    end
     
-    component "AXI System Bus" as AXI {
-        port cpu_port
-        port vop_port
-        port memory_port
-    }
+    subgraph "External Components"
+        RAM["DDR3 SDRAM<br/>ddr_interface"]
+        LCD["320x320 LCD Panel<br/>dpi_interface<br/>TFT Matrix<br/>Driver IC<br/>LED Backlight"]
+        BL_CTRL["Backlight Controller<br/>pwm_in<br/>led_out"]
+    end
     
-    component "DDR3 Memory Controller" as DDR {
-        port axi_port
-        port ddr_pins
-    }
-    
-    component "VOP (Video Output Processor)" as VOP {
-        component "Display Controller" as DC
-        component "Layer Compositor" as LC  
-        component "Color Space Converter" as CSC
-        component "Scaler" as SCL
-        port axi_if
-        port dpi_if
-    }
-    
-    component "Clock & Reset Unit" as CRU {
-        port vop_clk
-        port dpi_clk
-    }
-    
-    component "Power Management Unit" as PMU {
-        port power_ctrl
-    }
-}
-
-package "External Components" {
-    component "DDR3 SDRAM" as RAM {
-        port ddr_interface
-    }
-    
-    component "320x320 LCD Panel" as LCD {
-        port dpi_interface
-        component "TFT Matrix" as TFT
-        component "Driver IC" as Driver
-        component "LED Backlight" as Backlight
-    }
-    
-    component "Backlight Controller" as BL_CTRL {
-        port pwm_in
-        port led_out
-    }
-}
-
-' 连接关系
-CPU::cpu_if --> AXI::cpu_port
-VOP::axi_if --> AXI::vop_port  
-DDR::axi_port --> AXI::memory_port
-CRU::vop_clk --> VOP
-CRU::dpi_clk --> VOP::dpi_if
-PMU::power_ctrl --> VOP
-VOP::dpi_if --> LCD::dpi_interface
-DDR::ddr_pins --> RAM::ddr_interface
-BL_CTRL::led_out --> LCD::Backlight
-
-note top of VOP : "Video Output Processor\n支持多层混合\n硬件缩放\n格式转换"
-note right of LCD : "320×320 TFT-LCD\n24-bit RGB接口\nLED背光"
-
-@enduml
+    CPU --> AXI
+    VOP --> AXI
+    DDR --> AXI
+    CRU --> VOP
+    PMU --> VOP
+    VOP --> LCD
+    DDR --> RAM
+    BL_CTRL --> LCD
 ```
 
 ### 1.3 VOP内部架构
 
-```plantuml
-@startuml VOPInternalArchitecture
-
-package "VOP (Video Output Processor)" {
-    component "AXI Master Interface" as AXI_IF {
-        port read_channel
-        port write_channel
-    }
-    
-    component "Layer Processing Pipeline" {
-        component "Layer 0 (Primary)" as L0 {
-            component "Format Decoder" as FD0
-            component "Color Space Convert" as CSC0
-            component "Scaler" as SCL0
-        }
+```mermaid
+graph TD
+    subgraph "VOP (Video Output Processor)"
+        AXI_IF["AXI Master Interface<br/>read_channel<br/>write_channel"]
         
-        component "Layer 1 (Overlay)" as L1 {
-            component "Format Decoder" as FD1  
-            component "Alpha Blending" as AB1
-        }
+        subgraph "Layer Processing Pipeline"
+            L0["Layer 0 (Primary)<br/>Format Decoder<br/>Color Space Convert<br/>Scaler"]
+            L1["Layer 1 (Overlay)<br/>Format Decoder<br/>Alpha Blending"]
+            L2["Layer 2 (Cursor)<br/>Cursor Controller"]
+        end
         
-        component "Layer 2 (Cursor)" as L2 {
-            component "Cursor Controller" as CC2
-        }
-    }
+        COMP["Display Compositor<br/>Alpha Compositor<br/>Dithering Engine<br/>Gamma Correction"]
+        DTG["Display Timing Generator<br/>CRTC Controller<br/>Timing Generator<br/>FIFO Controller"]
+        DPI_OUT["DPI Output Interface<br/>hsync_out<br/>vsync_out<br/>de_out<br/>pclk_out<br/>rgb_data[23:0]"]
+    end
     
-    component "Display Compositor" as COMP {
-        component "Alpha Compositor" as AC
-        component "Dithering Engine" as DE
-        component "Gamma Correction" as GC
-    }
-    
-    component "Display Timing Generator" as DTG {
-        component "CRTC Controller" as CRTC
-        component "Timing Generator" as TG
-        component "FIFO Controller" as FIFO
-    }
-    
-    component "DPI Output Interface" as DPI_OUT {
-        port hsync_out
-        port vsync_out  
-        port de_out
-        port pclk_out
-        port rgb_data[23:0]
-    }
-}
-
-' 数据流连接
-AXI_IF::read_channel --> L0::FD0
-AXI_IF::read_channel --> L1::FD1
-AXI_IF::read_channel --> L2::CC2
-
-L0::SCL0 --> COMP::AC
-L1::AB1 --> COMP::AC
-L2::CC2 --> COMP::AC
-
-COMP::GC --> DTG::FIFO
-DTG::TG --> DPI_OUT
-
-note right of DTG : "时序生成器\n320x320@25.56Hz\n支持DPMS电源管理"
-note bottom of COMP : "支持Alpha混合\n伽马校正\n抖动处理"
-
-@enduml
+    AXI_IF --> L0
+    AXI_IF --> L1
+    AXI_IF --> L2
+    L0 --> COMP
+    L1 --> COMP
+    L2 --> COMP
+    COMP --> DTG
+    DTG --> DPI_OUT
 ```
 
 ---
@@ -230,63 +138,32 @@ CRTC功能:
 
 ### 2.3 时钟域架构
 
-```plantuml
-@startuml ClockDomainArchitecture
-
-component "System Clock Sources" {
-    component "24MHz Crystal" as XTAL {
-        port xtal_out
-    }
+```mermaid
+graph TD
+    subgraph "System Clock Sources"
+        XTAL["24MHz Crystal<br/>xtal_out"]
+        PLL0["PLL0 (CPLL)<br/>pll0_out"]
+        PLL1["PLL1 (GPLL)<br/>pll1_out"]
+    end
     
-    component "PLL0 (CPLL)" as PLL0 {
-        port pll0_out
-    }
+    subgraph "Clock & Reset Unit (CRU)"
+        MUX_DIV["Clock Mux & Divider<br/>clk_in[4]<br/>vop_aclk<br/>vop_dclk<br/>vop_hclk"]
+        RST_CTRL["Reset Controller<br/>reset_out"]
+    end
     
-    component "PLL1 (GPLL)" as PLL1 {
-        port pll1_out
-    }
-}
-
-component "Clock & Reset Unit (CRU)" {
-    component "Clock Mux & Divider" as MUX_DIV {
-        port clk_in[4]
-        port vop_aclk
-        port vop_dclk
-        port vop_hclk
-    }
+    subgraph "VOP Clock Domains"
+        AXI_CLK["AXI Clock Domain<br/>100MHz<br/>AXI总线时钟"]
+        DPI_CLK["Display Clock Domain<br/>3.015784MHz<br/>像素时钟"]
+        APB_CLK["APB Clock Domain<br/>50MHz<br/>寄存器访问"]
+    end
     
-    component "Reset Controller" as RST_CTRL {
-        port reset_out
-    }
-}
-
-component "VOP Clock Domains" {
-    component "AXI Clock Domain" as AXI_CLK {
-        note right: "100MHz\nAXI总线时钟"
-    }
-    
-    component "Display Clock Domain" as DPI_CLK {
-        note right: "3.015784MHz\n像素时钟"
-    }
-    
-    component "APB Clock Domain" as APB_CLK {
-        note right: "50MHz\n寄存器访问"
-    }
-}
-
-' 时钟连接
-XTAL::xtal_out --> PLL0
-XTAL::xtal_out --> PLL1
-PLL0::pll0_out --> MUX_DIV::clk_in
-PLL1::pll1_out --> MUX_DIV::clk_in
-
-MUX_DIV::vop_aclk --> AXI_CLK
-MUX_DIV::vop_dclk --> DPI_CLK  
-MUX_DIV::vop_hclk --> APB_CLK
-
-note bottom of MUX_DIV : "时钟分频计算:\nPLL1(1200MHz) ÷ 398 = 3.015784MHz"
-
-@enduml
+    XTAL --> PLL0
+    XTAL --> PLL1
+    PLL0 --> MUX_DIV
+    PLL1 --> MUX_DIV
+    MUX_DIV --> AXI_CLK
+    MUX_DIV --> DPI_CLK
+    MUX_DIV --> APB_CLK
 ```
 
 ---
@@ -295,153 +172,135 @@ note bottom of MUX_DIV : "时钟分频计算:\nPLL1(1200MHz) ÷ 398 = 3.015784MH
 
 ### 3.1 Linux显示子系统架构
 
-```plantuml
-@startuml LinuxDisplayStack
-
-package "User Space" {
-    component "Application" as APP
-    component "Graphics Library" {
-        component "Qt/Slint" as UI_FW
-        component "Cairo/Skia" as 2D_LIB
-    }
-    component "Mesa 3D" as MESA
-}
-
-package "Kernel Space" {
-    component "DRM Subsystem" {
-        component "DRM Core" as DRM_CORE
-        component "KMS (Kernel Mode Setting)" as KMS
-        component "GEM (Graphics Execution Manager)" as GEM
-    }
+```mermaid
+graph TD
+    subgraph "User Space"
+        APP["Application"]
+        subgraph "Graphics Library"
+            UI_FW["Qt/Slint"]
+            2D_LIB["Cairo/Skia"]
+        end
+        MESA["Mesa 3D"]
+    end
     
-    component "Framebuffer Layer" as FB
-    component "VT (Virtual Terminal)" as VT
+    subgraph "Kernel Space"
+        subgraph "DRM Subsystem"
+            DRM_CORE["DRM Core"]
+            KMS["KMS (Kernel Mode Setting)"]
+            GEM["GEM (Graphics Execution Manager)"]
+        end
+        
+        FB["Framebuffer Layer"]
+        VT["VT (Virtual Terminal)"]
+        
+        subgraph "Platform Driver"
+            RK_DRM["Rockchip DRM Driver"]
+            VOP_DRV["VOP Driver"]
+            DPI_DRV["DPI Driver"]
+        end
+    end
     
-    component "Platform Driver" {
-        component "Rockchip DRM Driver" as RK_DRM
-        component "VOP Driver" as VOP_DRV
-        component "DPI Driver" as DPI_DRV
-    }
-}
-
-package "Hardware" {
-    component "VOP Hardware" as VOP_HW
-    component "LCD Panel" as LCD
-}
-
-' 用户空间连接
-APP --> UI_FW
-UI_FW --> 2D_LIB
-APP --> MESA
-
-' 内核接口
-UI_FW --> DRM_CORE : "/dev/dri/card0"
-UI_FW --> FB : "/dev/fb0"
-VT --> FB
-MESA --> GEM
-
-' DRM子系统
-DRM_CORE --> KMS
-DRM_CORE --> GEM
-KMS --> RK_DRM
-GEM --> RK_DRM
-
-' 平台驱动
-RK_DRM --> VOP_DRV
-VOP_DRV --> DPI_DRV
-DPI_DRV --> VOP_HW
-VOP_HW --> LCD
-
-note right of KMS : "Kernel Mode Setting\n显示模式配置\n热插拔检测"
-note right of GEM : "Graphics Execution Manager\n显存管理\n缓冲区对象"
-
-@enduml
+    subgraph "Hardware"
+        VOP_HW["VOP Hardware"]
+        LCD["LCD Panel"]
+    end
+    
+    APP --> UI_FW
+    UI_FW --> 2D_LIB
+    APP --> MESA
+    
+    UI_FW -->|" /dev/dri/card0 "| DRM_CORE
+    UI_FW -->|" /dev/fb0 "| FB
+    VT --> FB
+    MESA --> GEM
+    
+    DRM_CORE --> KMS
+    DRM_CORE --> GEM
+    KMS --> RK_DRM
+    GEM --> RK_DRM
+    
+    RK_DRM --> VOP_DRV
+    VOP_DRV --> DPI_DRV
+    DPI_DRV --> VOP_HW
+    VOP_HW --> LCD
 ```
 
 ### 3.2 DRM对象模型
 
-```plantuml
-@startuml DRMObjectModel
-
-class DRMDevice {
-    +card0: /dev/dri/card0
-    +controlD64: /dev/dri/controlD64
-    +renderD128: /dev/dri/renderD128
-    +driver: "rockchip"
-    +version: "1.0.0"
-}
-
-class CRTC {
-    +id: 60
-    +name: "crtc-0"
-    +active: boolean
-    +mode: DisplayMode
-    +gamma_size: 256
-    +cursor: CursorPlane
-}
-
-class Encoder {
-    +id: 61  
-    +name: "DPI-61"
-    +encoder_type: DPI
-    +possible_crtcs: 0x1
-    +possible_clones: 0x0
-}
-
-class Connector {
-    +id: 62
-    +name: "DPI-1"
-    +connector_type: DPI
-    +connection: connected
-    +dpms: 3 (Off)
-    +edid: null
-}
-
-class Plane {
-    +id: 31
-    +name: "plane-0"  
-    +type: Primary
-    +possible_crtcs: 0x1
-    +formats[]: [RGB565, RGB888, ARGB8888]
-}
-
-class DisplayMode {
-    +name: "320x320"
-    +hdisplay: 320
-    +vdisplay: 320
-    +htotal: 345
-    +vtotal: 342
-    +clock: 3016  // kHz
-    +flags: 0
-}
-
-class Framebuffer {
-    +id: 123
-    +width: 320
-    +height: 320
-    +format: ARGB8888
-    +pitch[]: [1280]
-    +offset[]: [0]
-    +gem_handle: GEMObject
-}
-
-' 关联关系
-DRMDevice ||--|| CRTC
-DRMDevice ||--|| Encoder
-DRMDevice ||--|| Connector
-DRMDevice ||--|| Plane
-
-CRTC ||--|| DisplayMode
-CRTC }|--|| Plane
-Encoder }|--|| CRTC
-Connector }|--|| Encoder
-Plane }|--|| Framebuffer
-
-note top of DRMDevice : "RK3308主显示设备\nDRM版本2.6"
-note right of CRTC : "显示管道控制器\n时序生成\n模式设置"
-note bottom of Plane : "显示层\n支持多格式\n硬件混合"
-
-@enduml
+```mermaid
+classDiagram
+    class DRMDevice {
+        +card0: /dev/dri/card0
+        +controlD64: /dev/dri/controlD64
+        +renderD128: /dev/dri/renderD128
+        +driver: "rockchip"
+        +version: "1.0.0"
+    }
+    
+    class CRTC {
+        +id: 60
+        +name: "crtc-0"
+        +active: boolean
+        +mode: DisplayMode
+        +gamma_size: 256
+        +cursor: CursorPlane
+    }
+    
+    class Encoder {
+        +id: 61
+        +name: "DPI-61"
+        +encoder_type: DPI
+        +possible_crtcs: 0x1
+        +possible_clones: 0x0
+    }
+    
+    class Connector {
+        +id: 62
+        +name: "DPI-1"
+        +connector_type: DPI
+        +connection: connected
+        +dpms: 3 (Off)
+        +edid: null
+    }
+    
+    class Plane {
+        +id: 31
+        +name: "plane-0"
+        +type: Primary
+        +possible_crtcs: 0x1
+        +formats[]: [RGB565, RGB888, ARGB8888]
+    }
+    
+    class DisplayMode {
+        +name: "320x320"
+        +hdisplay: 320
+        +vdisplay: 320
+        +htotal: 345
+        +vtotal: 342
+        +clock: 3016  // kHz
+        +flags: 0
+    }
+    
+    class Framebuffer {
+        +id: 123
+        +width: 320
+        +height: 320
+        +format: ARGB8888
+        +pitch[]: [1280]
+        +offset[]: [0]
+        +gem_handle: GEMObject
+    }
+    
+    DRMDevice --* CRTC
+    DRMDevice --* Encoder
+    DRMDevice --* Connector
+    DRMDevice --* Plane
+    
+    CRTC --* DisplayMode
+    CRTC --o Plane
+    Encoder --o CRTC
+    Connector --o Encoder
+    Plane --o Framebuffer
 ```
 
 ---
@@ -450,59 +309,54 @@ note bottom of Plane : "显示层\n支持多格式\n硬件混合"
 
 ### 4.1 KMS显示管道
 
-```plantuml
-@startuml KMSDisplayPipeline
+```mermaid
+sequenceDiagram
+    participant APP as Application
+    participant DRM as DRM Core
+    participant RK_DRM as Rockchip DRM
+    participant VOP as VOP Driver
+    participant DPI as DPI Driver
+    participant LCD as LCD Panel
 
-participant "Application" as APP
-participant "DRM Core" as DRM
-participant "Rockchip DRM" as RK_DRM
-participant "VOP Driver" as VOP
-participant "DPI Driver" as DPI
-participant "LCD Panel" as LCD
+    APP->>DRM: drmModeSetCrtc()
+    activate DRM
 
-APP -> DRM: drmModeSetCrtc()
-activate DRM
+    DRM->>RK_DRM: crtc_mode_set()
+    activate RK_DRM
 
-DRM -> RK_DRM: crtc_mode_set()
-activate RK_DRM
+    RK_DRM->>VOP: vop_crtc_mode_set()
+    activate VOP
 
-RK_DRM -> VOP: vop_crtc_mode_set()
-activate VOP
+    VOP->>VOP: configure_timing()
+    note right of VOP: 设置320x320@25.56Hz时序
 
-VOP -> VOP: configure_timing()
-note right: 设置320x320@25.56Hz时序
+    VOP->>VOP: setup_layers()
+    note right of VOP: 配置显示层
 
-VOP -> VOP: setup_layers()
-note right: 配置显示层
+    VOP->>DPI: dpi_enable()
+    activate DPI
 
-VOP -> DPI: dpi_enable()
-activate DPI
+    DPI->>LCD: 输出DPI信号
+    note right of LCD: RGB888 + 同步信号
 
-DPI -> LCD: 输出DPI信号
-note right: RGB888 + 同步信号
+    LCD-->>DPI: 显示确认
+    DPI-->>VOP: 输出完成
+    deactivate DPI
 
-LCD --> DPI: 显示确认
-DPI --> VOP: 输出完成
-deactivate DPI
+    VOP-->>RK_DRM: 模式设置完成
+    deactivate VOP
 
-VOP --> RK_DRM: 模式设置完成
-deactivate VOP
+    RK_DRM-->>DRM: 设置成功
+    deactivate RK_DRM
 
-RK_DRM --> DRM: 设置成功
-deactivate RK_DRM
-
-DRM --> APP: 返回结果
-deactivate DRM
-
-@enduml
+    DRM-->>APP: 返回结果
+    deactivate DRM
 ```
 
 ### 4.2 DRM事件处理流程
 
-```plantuml
-@startuml DRMEventHandling
-
-state "DRM Event State Machine" as DRM_SM {
+```mermaid
+stateDiagram-v2
     [*] --> Idle
     
     Idle --> ModeSet : drmModeSetCrtc()
@@ -514,7 +368,7 @@ state "DRM Event State Machine" as DRM_SM {
     Active --> Standby : DPMS_STANDBY
     Standby --> Active : DPMS_ON
     
-    Active --> Suspend : DPMS_SUSPEND  
+    Active --> Suspend : DPMS_SUSPEND
     Suspend --> Active : DPMS_ON
     
     Active --> Off : DPMS_OFF
@@ -533,12 +387,6 @@ state "DRM Event State Machine" as DRM_SM {
         WaitVBlank --> UpdateScanout : VBlank中断
         UpdateScanout --> [*] : 扫描输出更新
     }
-}
-
-note right of PageFlip : "页面翻转机制\n双缓冲显示\n垂直同步"
-note bottom of ModeSet : "显示模式设置\n时序参数配置\n输出通路激活"
-
-@enduml
 ```
 
 ---
@@ -591,65 +439,48 @@ Line_Time = 1 ÷ H_Frequency
 
 ### 5.3 信号时序图
 
-```plantuml
-@startuml SignalTimingDiagram
-
-robust "PCLK" as PCLK
-robust "HSYNC" as HSYNC  
-robust "VSYNC" as VSYNC
-robust "DE" as DE
-robust "RGB_DATA" as RGB
-
-@0
-PCLK is 0
-HSYNC is 1
-VSYNC is 1  
-DE is 0
-RGB is "Black"
-
-@10
-PCLK is 1
-
-@20  
-PCLK is 0
-HSYNC is 0
-note bottom : "水平同步开始 (负极性)"
-
-@30
-PCLK is 1
-
-@40
-PCLK is 0
-
-@100
-HSYNC is 1
-note bottom : "水平同步结束"
-
-@150
-DE is 1
-RGB is "Pixel_Data"
-note bottom : "有效像素数据开始"
-
-@200
-PCLK is 1
-
-@210
-PCLK is 0
-
-@3200
-DE is 0
-RGB is "Black"
-note bottom : "有效像素数据结束"
-
-@3300
-VSYNC is 0
-note bottom : "垂直同步开始 (负极性)"
-
-@3400
-VSYNC is 1
-note bottom : "垂直同步结束"
-
-@enduml
+```mermaid
+graph LR
+    subgraph "Time 0"
+        PCLK0[PCLK: 0]
+        HSYNC0[HSYNC: 1]
+        VSYNC0[VSYNC: 1]
+        DE0[DE: 0]
+        RGB0[RGB: Black]
+    end
+    
+    subgraph "Time 10"
+        PCLK10[PCLK: 1]
+    end
+    
+    subgraph "Time 20"
+        PCLK20[PCLK: 0]
+        HSYNC20["HSYNC: 0 水平同步开始 (负极性)"]
+    end
+    
+    subgraph "Time 100"
+        HSYNC100["HSYNC: 1 水平同步结束"]
+    end
+    
+    subgraph "Time 150"
+        DE150[DE: 1]
+        RGB150["RGB: Pixel_Data 有效像素数据开始"]
+    end
+    
+    subgraph "Time 3200"
+        DE3200[DE: 0]
+        RGB3200["RGB: Black 有效像素数据结束"]
+    end
+    
+    subgraph "Time 3300"
+        VSYNC3300["VSYNC: 0 垂直同步开始 (负极性)"]
+    end
+    
+    subgraph "Time 3400"
+        VSYNC3400["VSYNC: 1 垂直同步结束"]
+    end
+    
+    PCLK0 --> PCLK10 --> PCLK20 --> HSYNC20 --> HSYNC100 --> DE150 --> RGB150 --> DE3200 --> RGB3200 --> VSYNC3300 --> VSYNC3400
 ```
 
 ---
@@ -789,27 +620,17 @@ struct fb_var_screeninfo {
 
 ### 7.2 电源状态转换图
 
-```plantuml
-@startuml PowerStateTransition
-
-state "DPMS Power States" as DPMS {
+```mermaid
+stateDiagram-v2
     [*] --> Off
     
-    Off : 显示器关闭
-    Off : 功耗: 20mW
-    Off : 恢复时间: 100ms
+    Off
     
-    Standby : 待机模式  
-    Standby : 功耗: 150mW
-    Standby : 恢复时间: 10ms
+    Standby
     
-    Suspend : 挂起模式
-    Suspend : 功耗: 80mW  
-    Suspend : 恢复时间: 50ms
+    Suspend
     
-    On : 正常显示
-    On : 功耗: 255mW
-    On : 恢复时间: 0ms
+    On
     
     Off --> On : echo 0 > dpms
     Off --> Standby : echo 1 > dpms
@@ -819,59 +640,45 @@ state "DPMS Power States" as DPMS {
     Standby --> Suspend : echo 2 > dpms
     Standby --> Off : echo 3 > dpms
     
-    Suspend --> On : echo 0 > dpms  
+    Suspend --> On : echo 0 > dpms
     Suspend --> Standby : echo 1 > dpms
     Suspend --> Off : echo 3 > dpms
     
     On --> Standby : echo 1 > dpms
     On --> Suspend : echo 2 > dpms
     On --> Off : echo 3 > dpms
-}
-
-note right of On : "正常工作状态\n背光开启\n像素数据输出"
-note right of Standby : "快速恢复模式\n背光可能关闭\n时序信号保持"
-note bottom of Suspend : "深度节能模式\n部分时序关闭\n保持最小功耗"
-note left of Off : "完全关闭\n所有信号停止\n最低功耗状态"
-
-@enduml
 ```
 
 ### 7.3 背光控制系统
 
-```plantuml
-@startuml BacklightControlSystem
-
-component "Backlight Control Stack" {
-    component "User Space" {
-        component "Application" as APP
-        component "Brightness Control" as BRIGHT_CTRL
-    }
+```mermaid
+graph TD
+    subgraph "Backlight Control Stack"
+        subgraph "User Space"
+            APP["Application"]
+            BRIGHT_CTRL["Brightness Control"]
+        end
+        
+        subgraph "Kernel Space"
+            BL_CLASS["Backlight Class"]
+            PLAT_DRV["Platform Driver"]
+            PWM["PWM Subsystem"]
+        end
+        
+        subgraph "Hardware"
+            PWM_HW["PWM Controller<br/>PWM频率: 1kHz<br/>分辨率: 8-bit (256级)<br/>占空比: 0-100%"]
+            LED_DRV["LED Driver"]
+            LED_ARRAY["LED Array<br/>6颗白光LED<br/>正向电流: 20mA<br/>总功耗: ~400mW@100%"]
+        end
+    end
     
-    component "Kernel Space" {
-        component "Backlight Class" as BL_CLASS
-        component "Platform Driver" as PLAT_DRV
-        component "PWM Subsystem" as PWM
-    }
-    
-    component "Hardware" {
-        component "PWM Controller" as PWM_HW
-        component "LED Driver" as LED_DRV
-        component "LED Array" as LED_ARRAY
-    }
-}
-
-APP -> BRIGHT_CTRL : set_brightness(180)
-BRIGHT_CTRL -> BL_CLASS : "/sys/class/backlight/backlight/brightness"
-BL_CLASS -> PLAT_DRV : backlight_update_status()
-PLAT_DRV -> PWM : pwm_config(period, duty_cycle)
-PWM -> PWM_HW : 硬件PWM配置
-PWM_HW -> LED_DRV : PWM信号 (70% duty cycle)
-LED_DRV -> LED_ARRAY : 驱动电流控制
-
-note right of PWM_HW : "PWM频率: 1kHz\n分辨率: 8-bit (256级)\n占空比: 0-100%"
-note bottom of LED_ARRAY : "6颗白光LED\n正向电流: 20mA\n总功耗: ~400mW@100%"
-
-@enduml
+    APP -->|"set_brightness(180)"| BRIGHT_CTRL
+    BRIGHT_CTRL -->|"/sys/class/backlight/backlight/brightness"| BL_CLASS
+    BL_CLASS -->|"backlight_update_status()"| PLAT_DRV
+    PLAT_DRV -->|"pwm_config(period, duty_cycle)"| PWM
+    PWM -->|"硬件PWM配置"| PWM_HW
+    PWM_HW -->|"PWM信号 (70% duty cycle)"| LED_DRV
+    LED_DRV -->|"驱动电流控制"| LED_ARRAY
 ```
 
 ---
